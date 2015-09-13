@@ -133,7 +133,7 @@ def main():
     )
 
     parser.add_argument('-l', '--list', action='store_true')
-    parser.add_argument('-a', '--audio-index', type=int, default=0, help='Index of the output audio device')
+    parser.add_argument('-a', '--audio-index', type=int, default=None, help='Index of the output audio device')
     parser.add_argument('-i', '--event-index', type=int, help='Index of the input device to listen to')
     parser.add_argument('-d', '--device', type=str, help='Path of the event to listen to')
     parser.add_argument('-k', '--keymap', type=str, default='de', help='Keymap: de or en')
@@ -149,6 +149,7 @@ def main():
 
     # Setup input listener
     devices = [evdev.InputDevice(fn) for fn in evdev.list_devices()]
+    p = pyaudio.PyAudio()
     if args.list:
         print('Input devices:')
         for idx, dev in enumerate(devices):
@@ -156,7 +157,6 @@ def main():
 
         print()
         print('Audio devices:')
-        p = pyaudio.PyAudio()
         for idx in range(p.get_device_count()):
             info = p.get_device_info_by_index(idx)
             print('{}: {}'.format(idx, info['name']))
@@ -173,7 +173,16 @@ def main():
         print('Frequency must be greater than zero')
         return 1
 
-    if not (0 <= args.audio_index < pyaudio.PyAudio().get_device_count()):
+    if args.audio_index is None:
+        # Choose default sink if it exists
+        for i in range(p.get_device_count()):
+            info = p.get_device_info_by_index(i)
+            if info['name'] == 'default':
+                args.audio_index = i
+                break
+        else:
+            args.audio_index = 0
+    elif not (0 <= args.audio_index < pyaudio.PyAudio().get_device_count()):
         print('Audio device does not exist')
         return 1
 
