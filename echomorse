@@ -18,6 +18,7 @@ import os
 import argparse
 import math
 import struct
+import time
 
 import evdev
 import pyaudio
@@ -58,6 +59,8 @@ class MorsePlayer(object):
         '9' : '----.', ' ' : ' '
     }
 
+    done = property(lambda self: len(self.__queue) == 0)
+
     def __init__(self, frequency=700, word_speed=20):
         self.__word_speed = word_speed
 
@@ -85,7 +88,7 @@ class MorsePlayer(object):
                                            stream_callback = lambda *args: self.__callback(*args))
         
         self.__stream.start_stream()
-        self.__queue += self.__charspace
+        self.__queue += self.__charspace * 10
 
 
     def play(self, word):
@@ -105,8 +108,7 @@ class MorsePlayer(object):
                     self.__queue += self.__wordspace
 
             self.__queue += self.__charspace
-
-
+    
     def __callback(self, in_data, frame_count, time_info, status):
         data = self.__queue[0:frame_count*2]
         self.__queue = self.__queue[2*frame_count:]
@@ -135,6 +137,7 @@ def main():
     parser.add_argument('-k', '--keymap', type=str, default='de', help='Keymap: de or en')
     parser.add_argument('--wpm', type=int, default=25, help='Words per minute')
     parser.add_argument('--frequency', type=int, default=750, help='Audio frequency')
+    parser.add_argument('--test', type=str, help='Test output')
     
     if len(sys.argv) == 1:
         sys.argv.append('--help')
@@ -183,7 +186,11 @@ def main():
     player = MorsePlayer(frequency = args.frequency,
                          word_speed = args.wpm)
 
-    player.play('OE5TKM')
+    if args.test is not None:
+        player.play(args.test)
+        while not player.done:
+            time.sleep(0.1)
+        return 0
 
     # Event loop
     for event in device.read_loop():
