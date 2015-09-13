@@ -61,19 +61,19 @@ class MorsePlayer(object):
 
     done = property(lambda self: len(self.__queue) == 0)
 
-    def __init__(self, frequency=700, word_speed=20):
-        self.__word_speed = word_speed
-
+    def __init__(self, device_index=0, frequency=700, word_speed=20):
         self.__queue = bytes()
         self.__player = pyaudio.PyAudio()
         
         dit_len = 1.2 / word_speed
         dah_len = dit_len * 3
         
-        sample_rate = 48000
+        sample_rate = 44100
         samples = sample_rate // frequency
-        wave = [int(math.sin(2*math.pi * x / samples) * 20000) for x in range(samples)]
+        amplitude = 30000
+        wave = [int(math.sin(2*math.pi * x / samples) * amplitude) for x in range(samples)]
         wave = b''.join([struct.pack('h', x) for x in wave])
+
 
         self.__dit = wave * int(frequency * dit_len)
         self.__dah = wave * int(frequency * dah_len)
@@ -85,10 +85,11 @@ class MorsePlayer(object):
                                            channels = 1,
                                            rate = sample_rate,
                                            output = True,
-                                           stream_callback = lambda *args: self.__callback(*args))
+                                           stream_callback = lambda *args: self.__callback(*args),
+                                           output_device_index=device_index)
         
         self.__stream.start_stream()
-        self.__queue += self.__charspace * 10
+        self.__queue += self.__charspace
 
 
     def play(self, word):
@@ -132,7 +133,8 @@ def main():
     )
 
     parser.add_argument('-l', '--list', action='store_true')
-    parser.add_argument('-i', '--index', type=int, help='Index of the device to listen to')
+    parser.add_argument('-a', '--audio-index', type=int, default=0, help='Index of the output audio device')
+    parser.add_argument('-i', '--event-index', type=int, help='Index of the input device to listen to')
     parser.add_argument('-d', '--device', type=str, help='Path of the event to listen to')
     parser.add_argument('-k', '--keymap', type=str, default='de', help='Keymap: de or en')
     parser.add_argument('--wpm', type=int, default=25, help='Words per minute')
@@ -144,35 +146,23 @@ def main():
 
     args = parser.parse_args()
 
+
+    # Setup input listener
     devices = [evdev.InputDevice(fn) for fn in evdev.list_devices()]
     if args.list:
+        print('Input devices:')
         for idx, dev in enumerate(devices):
             print('{}: {}'.format(idx, dev.name))
+
+        print()
+        print('Audio devices:')
+        p = pyaudio.PyAudio()
+        for idx in range(p.get_device_count()):
+            info = p.get_device_info_by_index(idx)
+            print('{}: {}'.format(idx, info['name']))
+
         return 0
 
-    try:
-        keymap = globals()['keymap_' + args.keymap]
-    except:
-        print('Unrecognized keymap {}'.format(args.keymap))
-        return 1
-    
-    if ((args.index is not None and args.device is not None) or
-        (args.index is None and args.device is None)):
-        print('Either device or index have to be specified, but not both')
-        return 1
-
-    if args.index is not None:
-        if not (0 <= args.index < len(devices)):
-            print('Device does not exist')
-            return 1
-        device = devices[args.index]
-    elif args.device is not None:
-        if not os.path.exists(args.device):
-            print('Device does not exist')
-            return 1
-        device = evdev.InputDevice(args.device)
-    else:
-        assert False
 
     # Setup for MorsePlayer
     if args.wpm <= 0:
@@ -183,14 +173,43 @@ def main():
         print('Frequency must be greater than zero')
         return 1
 
+    if not (0 <= args.audio_index < pyaudio.PyAudio().get_device_count()):
+        print('Audio device does not exist')
+        return 1
+
     player = MorsePlayer(frequency = args.frequency,
-                         word_speed = args.wpm)
+                         word_speed = args.wpm,
+                         device_index = args.audio_index)
 
     if args.test is not None:
         player.play(args.test)
         while not player.done:
             time.sleep(0.1)
         return 0
+
+    try:
+        keymap = globals()['keymap_' + args.keymap]
+    except:
+        print('Unrecognized keymap {}'.format(args.keymap))
+        return 1
+    
+    if ((args.event_index is not None and args.device is not None) or
+        (args.event_index is None and args.device is None)):
+        print('Either device or index have to be specified, but not both')
+        return 1
+
+    if args.event_index is not None:
+        if not (0 <= args.event_index < len(devices)):
+            print('Device does not exist')
+            return 1
+        device = devices[args.event_index]
+    elif args.device is not None:
+        if not os.path.exists(args.device):
+            print('Device does not exist')
+            return 1
+        device = evdev.InputDevice(args.device)
+    else:
+        assert False
 
     # Event loop
     for event in device.read_loop():
